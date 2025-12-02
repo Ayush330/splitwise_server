@@ -16,8 +16,10 @@ func main() {
 	Router := chi.NewRouter()
 	Router.Post("/createUser", handlers.CreateUser)
 	Router.Post("/createGroup", handlers.CreateGroup)
-	Router.Get("/login", handlers.Login)
-	Router.Get("/logout", handlers.Logout)
+	Router.Post("/createExpense", handlers.AddExpense)
+	Router.Post("/userExpenseData", handlers.GetUserGroupAndTheirExpenses)
+	//Router.Get("/login", handlers.Login)
+	//Router.Get("/logout", handlers.Logout)
 	server := &http.Server{
 		Addr:           ":8080",
 		Handler:        Router,

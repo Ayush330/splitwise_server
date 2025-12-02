@@ -4,9 +4,10 @@ import (
 	"log"
 	"net/http"
 	"time"
-	"github.com/go-chi/chi/v5" // Import the library
-	"github.com/Ayush330/splitwise_server/internal/handlers"
+
 	"github.com/Ayush330/splitwise_server/internal/database"
+	"github.com/Ayush330/splitwise_server/internal/handlers"
+	"github.com/go-chi/chi/v5" // Import the library
 )
 
 func main() {
@@ -14,6 +15,7 @@ func main() {
 	database.Connect()
 	Router := chi.NewRouter()
 	Router.Post("/createUser", handlers.CreateUser)
+	Router.Post("/createGroup", handlers.CreateGroup)
 	Router.Get("/login", handlers.Login)
 	Router.Get("/logout", handlers.Logout)
 	server := &http.Server{
@@ -23,6 +25,5 @@ func main() {
 		WriteTimeout:   10 * time.Second,
 		MaxHeaderBytes: 1 << 20,
 	}
-	server.ListenAndServe()
+	log.Fatal(server.ListenAndServe())
 }
-

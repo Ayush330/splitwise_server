@@ -1,18 +1,20 @@
 package models
 
-
-
-
-type User struct{
-	Id string `json:"id"`
-	Uuid string `json:"uuid"`
-	Email string `json:"email"`
-	Name string `json:"name"`
+type User struct {
+	Id       string `json:"id"`
+	Uuid     string `json:"uuid"`
+	Email    string `json:"email"`
+	Name     string `json:"name"`
 	Password string `json:"password"`
 }
 
-type CreateUserRequest struct{
-	Email string `json:"email"`
-	Name string `json:"name"`
+type CreateUserRequest struct {
+	Email    string `json:"email"`
+	Name     string `json:"name"`
 	Password string `json:"password"`
+}
+
+type CreateGroupRequest struct {
+	Name   string `json:"name"`
+	UserId string `json:"userid"`
 }

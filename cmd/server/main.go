@@ -18,7 +18,9 @@ func main() {
 	Router.Post("/createGroup", handlers.CreateGroup)
 	Router.Post("/createExpense", handlers.AddExpense)
 	Router.Post("/userExpenseData", handlers.GetUserGroupAndTheirExpenses)
-	//Router.Get("/login", handlers.Login)
+	Router.Post("/login", handlers.Login)
+	Router.Get("/users/{userid}/groups", handlers.GetUserGroups)
+	Router.Get("/users/{userid}/groups/{groupid}/expenses", handlers.GetUserGroupExpenseDetails)
 	//Router.Get("/logout", handlers.Logout)
 	server := &http.Server{
 		Addr:           ":8080",

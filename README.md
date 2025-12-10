@@ -1,3 +1,1 @@
-# splitwise_server
-Splitwise server clone
-Hey Ayush!
+# Splitwise Backend in Go - Created by Ayush

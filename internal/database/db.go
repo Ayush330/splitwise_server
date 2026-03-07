@@ -1,19 +1,24 @@
 package database
 
-import(
+import (
 	"database/sql"
 	"log"
+	"os"
 	"time"
+
 	_ "github.com/go-sql-driver/mysql"
 )
 
 var DB *sql.DB
 
-func Connect(){
+func Connect() {
 	var err error
-	dsn := "ayush:ayush123@tcp(127.0.0.1:3306)/splitwise"
+	dsn := os.Getenv("DB_DSN")
+	if dsn == "" {
+		dsn = "ayush:ayush123@tcp(127.0.0.1:3306)/splitwise"
+	}
 	DB, err = sql.Open("mysql", dsn)
-	if err != nil{
+	if err != nil {
 		log.Fatal(err)
 	}
 	DB.SetMaxOpenConns(25)

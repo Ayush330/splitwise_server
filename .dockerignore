@@ -1,0 +1,8 @@
+.git
+.gitignore
+*.md
+deploy/
+mysql_local/
+*.exe
+*.test
+*.out

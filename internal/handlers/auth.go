@@ -2,13 +2,16 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 
 	"database/sql"
 
 	"github.com/Ayush330/splitwise_server/internal/database"
+	"github.com/Ayush330/splitwise_server/internal/middleware/authentication"
 	"github.com/Ayush330/splitwise_server/internal/models"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func Logout(res http.ResponseWriter, req *http.Request) {
@@ -17,61 +20,81 @@ func Logout(res http.ResponseWriter, req *http.Request) {
 }
 
 func CreateUser(res http.ResponseWriter, req *http.Request) {
+	ctx := req.Context()
 	var user models.CreateUserRequest
 	var err error
 	if err = json.NewDecoder(req.Body).Decode(&user); err != nil {
-		http.Error(res, "Invalid Json", http.StatusBadRequest)
+		jsonError(res, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
-	createUserError := func(errr string) {
-		http.Error(res, errr, http.StatusInternalServerError)
+	if !isValidEmail(user.Email) {
+		jsonError(res, "Invalid email format", http.StatusBadRequest)
+		return
 	}
-	tx, err := database.DB.Begin()
+	if !isValidPassword(user.Password) {
+		jsonError(res, "Password must be at least 6 characters", http.StatusBadRequest)
+		return
+	}
+	if !isValidName(user.Name) {
+		jsonError(res, "Name must be between 1 and 100 characters", http.StatusBadRequest)
+		return
+	}
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
 	if err != nil {
-		createUserError(err.Error())
+		jsonError(res, "Failed to process password", http.StatusInternalServerError)
+		return
+	}
+	tx, err := database.DB.BeginTx(ctx, nil)
+	if err != nil {
+		jsonError(res, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	defer tx.Rollback()
-	_, err = tx.Exec("INSERT INTO users (email, name, password) VALUES (?, ?, ?)", user.Email, user.Name, user.Password)
+	_, err = tx.ExecContext(ctx, "INSERT INTO users (email, name, password) VALUES (?, ?, ?)", user.Email, user.Name, string(hashedPassword))
 	if err != nil {
-		createUserError(err.Error())
+		jsonError(res, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	_, err = tx.Exec("INSERT INTO ugroups (name, owner_id) VALUES(?, (SELECT id FROM users WHERE email = ?))", user.Email, user.Email)
+	_, err = tx.ExecContext(ctx, "INSERT INTO ugroups (name, owner_id) VALUES(?, (SELECT id FROM users WHERE email = ?))", user.Email, user.Email)
 	if err != nil {
-		createUserError(err.Error())
+		jsonError(res, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	_, err = tx.Exec("INSERT INTO group_membership  SELECT id, owner_id FROM ugroups WHERE name = ?", user.Email)
+	_, err = tx.ExecContext(ctx, "INSERT INTO group_membership  SELECT id, owner_id FROM ugroups WHERE name = ?", user.Email)
 	if err != nil {
-		createUserError(err.Error())
+		jsonError(res, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	err = tx.Commit()
 	if err != nil {
-		createUserError(err.Error())
+		jsonError(res, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	res.WriteHeader(http.StatusCreated)
-	query := `SELECT id, BIN_TO_UUID(uuid), name, password FROM users WHERE email = ?`
+	query := `SELECT id, BIN_TO_UUID(uuid), name FROM users WHERE email = ?`
 	var userRes struct {
-		ID       int
-		UUID     string
-		Name     string
-		Password string
+		ID   int
+		UUID string
+		Name string
 	}
-	err = database.DB.QueryRow(query, user.Email).Scan(&userRes.ID, &userRes.UUID, &userRes.Name, &userRes.Password)
+	err = database.DB.QueryRowContext(ctx, query, user.Email).Scan(&userRes.ID, &userRes.UUID, &userRes.Name)
 	if err == sql.ErrNoRows {
-		http.Error(res, "User not found", http.StatusUnauthorized)
+		jsonError(res, "User not found", http.StatusUnauthorized)
 		return
 	} else if err != nil {
-		log.Println("Login Error:", err)
-		http.Error(res, "Database error", http.StatusInternalServerError)
+		log.Println("Signup Error:", err)
+		jsonError(res, "Database error", http.StatusInternalServerError)
+		return
+	}
+	token, err := authentication.CreateToken(fmt.Sprintf("%d", userRes.ID))
+	if err != nil {
+		jsonError(res, "Failed to generate token", http.StatusInternalServerError)
 		return
 	}
 	res.Header().Set("Content-Type", "application/json")
+	res.WriteHeader(http.StatusCreated)
 	json.NewEncoder(res).Encode(map[string]interface{}{
-		"message": "Login successful",
+		"message": "Signup successful",
+		"token":   token,
 		"user": map[string]interface{}{
 			"id":    userRes.ID,
 			"uuid":  userRes.UUID,
@@ -82,19 +105,25 @@ func CreateUser(res http.ResponseWriter, req *http.Request) {
 }
 
 func Login(w http.ResponseWriter, r *http.Request) {
-	// 1. Define Request DTO (Inline struct)
+	ctx := r.Context()
 	var req struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		jsonError(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if !isValidEmail(req.Email) {
+		jsonError(w, "Invalid email format", http.StatusBadRequest)
+		return
+	}
+	if req.Password == "" {
+		jsonError(w, "Password is required", http.StatusBadRequest)
 		return
 	}
 
-	// 2. Query the Database
-	// We need the Password to verify, and the UUID/ID to return to the frontend.
 	query := `SELECT id, BIN_TO_UUID(uuid), name, password FROM users WHERE email = ?`
 
 	var user struct {
@@ -104,30 +133,34 @@ func Login(w http.ResponseWriter, r *http.Request) {
 		Password string
 	}
 
-	err := database.DB.QueryRow(query, req.Email).Scan(&user.ID, &user.UUID, &user.Name, &user.Password)
+	err := database.DB.QueryRowContext(ctx, query, req.Email).Scan(&user.ID, &user.UUID, &user.Name, &user.Password)
 
 	if err == sql.ErrNoRows {
-		http.Error(w, "User not found", http.StatusUnauthorized)
+		jsonError(w, "User not found", http.StatusUnauthorized)
 		return
 	} else if err != nil {
 		log.Println("Login Error:", err)
-		http.Error(w, "Database error", http.StatusInternalServerError)
+		jsonError(w, "Database error", http.StatusInternalServerError)
 		return
 	}
 
-	// 3. Verify Password (Plaintext for MVP)
-	if user.Password != req.Password {
-		http.Error(w, "Invalid password", http.StatusUnauthorized)
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+		jsonError(w, "Invalid password", http.StatusUnauthorized)
 		return
 	}
 
-	// 4. Send Success Response
+	token, err := authentication.CreateToken(fmt.Sprintf("%d", user.ID))
+	if err != nil {
+		jsonError(w, "Failed to generate token", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"message": "Login successful",
+		"token":   token,
 		"user": map[string]interface{}{
 			"id":    user.ID,
-			"uuid":  user.UUID, // <--- THIS is what Flutter needs!
+			"uuid":  user.UUID,
 			"name":  user.Name,
 			"email": req.Email,
 		},
